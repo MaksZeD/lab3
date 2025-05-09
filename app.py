@@ -1,57 +1,42 @@
-from flask import Flask, request, jsonify
+from flask import Flask, jsonify
+import psutil
+import os
+from apscheduler.schedulers.background import BackgroundScheduler
 
 app = Flask(__name__)
-tasks = []  # Тимчасове сховище даних у пам'яті
-current_id = 1
+
+def check_quota():
+    cpu = psutil.cpu_percent(interval=1)
+    memory = psutil.virtual_memory().percent
+    cpu_quota = float(os.environ.get('CPU_QUOTA', 100))
+    memory_quota = float(os.environ.get('MEMORY_QUOTA', 100))
+    
+    print(f"CPU: {cpu}% (квота: {cpu_quota}%) | Пам'ять: {memory}% (квота: {memory_quota}%)")
+    
+    alerts = []
+    if cpu > cpu_quota:
+        alerts.append(f"Перевищено CPU: {cpu}% > {cpu_quota}%")
+    if memory > memory_quota:
+        alerts.append(f"Перевищено пам'ять: {memory}% > {memory_quota}%")
+    
+    if alerts:
+        print("Увага: " + "; ".join(alerts))
+
+scheduler = BackgroundScheduler()
+scheduler.add_job(check_quota, 'interval', minutes=5)
+scheduler.start()
 
 @app.route('/')
 def home():
-    return "Лаба №2: CRUD туда сюда"
+    return "Дослідження квот хмарних обчислень"
 
-# Create (POST)
-@app.route('/tasks', methods=['POST'])
-def create_task():
-    global current_id
-    data = request.json
-    new_task = {
-        "id": current_id,
-        "title": data.get('title', ''),
-        "status": "pending"
-    }
-    tasks.append(new_task)
-    current_id += 1
-    return jsonify(new_task), 201
-
-# Read all (GET)
-@app.route('/tasks', methods=['GET'])
-def get_tasks():
-    return jsonify({"tasks": tasks})
-
-# Read one (GET)
-@app.route('/tasks/<int:task_id>', methods=['GET'])
-def get_task(task_id):
-    task = next((t for t in tasks if t['id'] == task_id), None)
-    if task:
-        return jsonify(task)
-    return jsonify({"error": "Task not found"}), 404
-
-# Update (PUT)
-@app.route('/tasks/<int:task_id>', methods=['PUT'])
-def update_task(task_id):
-    data = request.json
-    task = next((t for t in tasks if t['id'] == task_id), None)
-    if not task:
-        return jsonify({"error": "Task not found"}), 404
-    task['title'] = data.get('title', task['title'])
-    task['status'] = data.get('status', task['status'])
-    return jsonify(task)
-
-# Delete (DELETE)
-@app.route('/tasks/<int:task_id>', methods=['DELETE'])
-def delete_task(task_id):
-    global tasks
-    tasks = [t for t in tasks if t['id'] != task_id]
-    return jsonify({"message": "Task deleted"}), 200
+@app.route('/metrics')
+def metrics():
+    return jsonify({
+        "cpu": psutil.cpu_percent(interval=1),
+        "memory": psutil.virtual_memory().percent
+    })
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
